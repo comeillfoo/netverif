@@ -22,8 +22,10 @@ proctype udt_sender(chan input, output) {
 proctype udt_receiver(chan input, output) {
     bit payload;
     do
-    :: input ? payload;
-       output ! payload
+    :: atomic {
+        input ? payload;
+        output ! payload
+      }
     od
 }
 
@@ -31,7 +33,7 @@ proctype sinker(chan input) {
     bit payload;
     do
     :: input ? payload;
-       printf("got %d\n", payload);
+       printf("sinked %d\n", payload);
        skip
     od
 }

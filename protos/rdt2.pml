@@ -9,7 +9,7 @@
  * - bits corruptions
  *****************************************/
 proctype rdt2_sender(chan inupper, outlower, inlower) {
-    bit payload, seq_num = 0, checksum, is_ack;
+    bit payload, seq_num = 1, checksum, is_ack;
     do
     :: inupper ? payload;
        seq_num = seq_num ^ 1;
