@@ -9,7 +9,7 @@
  * - bits corruptions
  *****************************************/
 proctype rdt2_sender(chan inupper, outlower, inlower) {
-    bit payload, seq_num = 1, checksum, is_ack;
+    bit payload, seq_num = 1, checksum, is_nack;
     do
     :: inupper ? payload;
        seq_num = seq_num ^ 1;
@@ -18,9 +18,9 @@ proctype rdt2_sender(chan inupper, outlower, inlower) {
        :: outlower ! payload;
           outlower ! seq_num;
           outlower ! checksum;
-          inlower ? is_ack;
+          inlower ? is_nack;
           if
-          :: ! is_ack -> break
+          :: ! is_nack -> break
           fi
        od
     od
@@ -34,11 +34,9 @@ proctype rdt2_receiver(chan inlower, outupper, outlower) {
        inlower ? checksum;
        if
        :: payload ^ seq_num != checksum ->
-            // printf("respond NACK\n");
-            outlower ! 1
+            outlower ! 1 // NACK: wrong checksum
        :: else ->
-            // printf("respond ACK\n");
-            outlower ! 0;
+            outlower ! 0; // ACK
             outupper ! payload
        fi
     od
