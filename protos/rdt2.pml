@@ -1,73 +1,57 @@
 #include "common.pml"
 
+#define make_chksm(payload) (! payload)
+#define check_chksm(payload, checksum) (payload != checksum)
+
+
+int packets = 10, exp_loss = 0, exp_corrupt = 0
+
+mtype { ack, nack }
+
 
 /******************************************
- * rdt2.0: check checksum and ARQ
+ * rdt2.0 features: check checksum and ARQ
  *
  * not resistant to:
  * - packets drops
- * - bits corruptions
+ * - bits corruptions in [N]ACKs
  *****************************************/
-proctype rdt2_sender(chan inupper, outlower, inlower) {
-    bit payload, seq_num = 1, checksum, is_nack;
-    do
-    :: inupper ? payload;
-       seq_num = seq_num ^ 1;
-       checksum = payload ^ seq_num;
-       do
-       :: outlower ! payload;
-          outlower ! seq_num;
-          outlower ! checksum;
-          inlower ? is_nack;
-          if
-          :: ! is_nack -> break
-          fi
-       od
-    od
+proctype rdt2_sender(chan tx, rx) {
+    bit packet[2];
+    for(nr_packet, 0, packets)
+        mtype response = nack;
+        generate(packet[0]);
+        packet[1] = make_chksm(packet[0]);
+        do
+        :: response == ack -> break
+        :: response == nack ->
+           udt_send(packet, 2, tx, exp_loss, exp_corrupt);
+           udt_receive_single(response, rx)
+        od;
+    rof(nr_packet)
 }
 
-proctype rdt2_receiver(chan inlower, outupper, outlower) {
-    bit payload, seq_num, checksum;
+
+proctype rdt2_receiver(chan rx, tx) {
+    bit packet[2];
     do
-    :: inlower ? payload;
-       inlower ? seq_num;
-       inlower ? checksum;
+    :: udt_receive_single(packet[0], rx);
+       udt_receive_single(packet[1], rx);
        if
-       :: payload ^ seq_num != checksum ->
-            outlower ! 1 // NACK: wrong checksum
-       :: else ->
-            outlower ! 0; // ACK
-            outupper ! payload
+       :: check_chksm(packet[0], packet[1]) -> // ACK
+          sink(packet, 2);
+          tx ! ack
+       :: else -> tx ! nack                    // NACK: wrong checksum
        fi
     od
 }
 
 
 init {
-    /* sending payload, sequence number, checksum */
-    chan app_L4 = [1] of { bit };
-    chan L4_app = [1] of { bit };
-
-    chan L4_L2_tx = [1] of { bit };
-    chan L4_L2_rx = [1] of { bit };
-
-    chan L2_L4_tx = [1] of { bit };
-    chan L2_L4_rx = [1] of { bit };
-
-    chan L2_tx = [1] of { bit };
-    chan L2_rx = [1] of { bit };
+    chan udata_c = [2] of { bit };
+    chan uack_c = [1] of { mtype };
     atomic {
-        run generator(app_L4);
-        run rdt2_sender(app_L4, L4_L2_tx, L4_L2_rx);
-        // payload channels
-        run udt_sender(L4_L2_tx, L2_tx);
-        run udt_receiver(L2_tx, L2_L4_tx);
-
-        // ack channels
-        run udt_receiver(L2_rx, L4_L2_rx);
-        run udt_sender(L2_L4_rx, L2_rx);
-
-        run rdt2_receiver(L2_L4_tx, L4_app, L2_L4_rx);
-        run sinker(L4_app)
+        run rdt2_sender(udata_c, uack_c);
+        run rdt2_receiver(udata_c, uack_c);
     }
 }

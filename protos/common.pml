@@ -1,39 +1,56 @@
-proctype generator(chan output) {
-    output ! 0;
-    output ! 1;
-    output ! 1;
-    output ! 0;
-    output ! 0
+#define for(it, low, high) \
+    int it = low; \
+    do \
+    :: else -> break \
+    :: it < high ->
+
+#define rof(it) \
+       it++ \
+    od
+
+
+int act_loss = 0, act_corrupt = 0
+
+
+inline generate(payload) {
+    if
+    :: payload = 0
+    :: payload = 1
+    fi;
+    printf("pkt [%d] sending...\n", payload)
 }
 
 
-proctype udt_sender(chan input, output) {
-    bit payload;
-    do
-    :: input ? payload;
-       if
-       :: output ! ! payload // corrupt payload
-       :: skip               // drop
-       :: output !   payload // pass upper level
-       fi
-    od
+inline udt_send(packet, size, output, exp_loss, exp_corrupt) {
+    if
+    :: act_corrupt < exp_corrupt -> atomic { // corrupt payload
+         for(i, 0, size)
+            if
+            :: output ! (! packet[i])
+            :: output ! packet[i]
+            fi;
+         rof(i)
+       };
+       act_corrupt++;
+    :: act_loss < exp_loss -> act_loss++ // drop
+    :: atomic { // just send
+         for(j, 0, size)
+            output ! packet[j];
+         rof(j)
+       }
+    fi
 }
 
-proctype udt_receiver(chan input, output) {
-    bit payload;
-    do
-    :: atomic {
-        input ? payload;
-        output ! payload
-      }
-    od
+inline udt_receive_single(payload, input) {
+    input ? payload
 }
 
-proctype sinker(chan input) {
-    bit payload;
-    do
-    :: input ? payload;
-       printf("sinked %d\n", payload);
-       skip
-    od
+inline sink(payloads, size) {
+    d_step {
+        printf("pkt [ ");
+        for(i, 0, size)
+            printf("%d ", payloads[i]);
+        rof(i);
+        printf("]: received\n")
+    }
 }
