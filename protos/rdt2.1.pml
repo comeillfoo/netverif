@@ -18,9 +18,11 @@ int packets = 10, exp_loss = 0, exp_corrupt = 5
  * - sequence numbers for payload
  * - checksums in [N]ACKs
  * - ARQ
+ * - ACK on wrong sequence number
  *
  * not resistant to:
  * - packets drops
+ * - packets order violation
  *****************************************/
 proctype rdt2_1_sender(chan tx, rx) {
     bit packet[4];
@@ -53,9 +55,11 @@ proctype rdt2_1_receiver(chan rx, tx) {
        udt_receive_single(packet[2], rx);
        udt_receive_single(packet[3], rx);
        if
-       :: hasseq == packet[1] && check2_chksm(packet) ->
+       :: check2_chksm(packet) && hasseq == packet[1] ->
           hasseq = ! hasseq;
           sink(packet, 4);
+          is_nack = 0 // ACK
+       :: check2_chksm(packet) && hasseq != packet[1] ->
           is_nack = 0 // ACK
        :: else ->
           is_nack = 1 // NACK
