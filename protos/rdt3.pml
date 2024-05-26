@@ -9,20 +9,19 @@ inline make2_chksm(payload, seqnum, chksm0, chksm1) {
     ((pkt[2] == (pkt[0] ^ pkt[1])) && (pkt[3] == (pkt[0] & pkt[1])))
 
 
-int packets = 10, exp_loss = 0, exp_corrupt = 5
+int packets = 10, exp_loss = 0, exp_corrupt = 0
 bool tx_stop = false, rx_stop = false
 
 /******************************************
- * rdt2.2 features:
+ * rdt3.0 features:
  * - sequence numbers in payload
  * - checksums in [N]ACKs
  * - sequence numbers in [N]ACKs
  * - ARQ
+ * - retransmission on timeout
  *
- * not resistant to:
- * - packets drops
  *****************************************/
-proctype rdt2_2_sender(chan tx, rx) {
+proctype rdt3_sender(chan tx, rx) {
     xs tx;
     xr rx;
     bit packet[4];
@@ -33,28 +32,35 @@ proctype rdt2_2_sender(chan tx, rx) {
         packet[1] = ! packet[1];
         make2_chksm(packet[0], packet[1], packet[2], packet[3]);
 
+resend:
         udt_send(packet, 4, tx, exp_loss, exp_corrupt);
 
-        udt_receive_single(response[0], rx);
-        udt_receive_single(response[1], rx);
-        udt_receive_single(response[2], rx);
-        udt_receive_single(response[3], rx);
-        do
-        :: ! response[0] && check2_chksm(response) && response[1] == packet[1] ->
-           break // not corrupted ACK
-        :: else -> // corrupted ACK or NACK or wrong sequence number
-           printf("warn: retransmitting...\n");
-           udt_send(packet, 4, tx, exp_loss, exp_corrupt);
-           udt_receive_single(response[0], rx);
-           udt_receive_single(response[1], rx);
-           udt_receive_single(response[2], rx);
-           udt_receive_single(response[3], rx)
-        od;
+        // retransmission timeout
+        for(tm_count, 0, 1)
+          if
+          :: full(rx) ->
+             udt_receive_single(response[0], rx);
+             udt_receive_single(response[1], rx);
+             udt_receive_single(response[2], rx);
+             udt_receive_single(response[3], rx);
+             goto handle_reply
+          fi;
+        rof(tm_count);
+        printf("warn: retransmitting on timeout...\n");
+        goto resend;
+
+handle_reply:
+        if
+        :: ((response[0]) || (! check2_chksm(response)) || (response[1] != packet[1])) ->
+           printf("warn: retransmitting on broken reply...\n");
+           goto resend
+        :: else -> skip
+        fi; // not corrupted ACK
     rof(nr_packet);
     tx_stop = true
 }
 
-proctype rdt2_2_receiver(chan rx, tx) {
+proctype rdt3_receiver(chan rx, tx) {
     xs tx;
     xr rx;
     bit packet[4], response[4], hasseq = 0;
@@ -66,14 +72,14 @@ proctype rdt2_2_receiver(chan rx, tx) {
        udt_receive_single(packet[2], rx);
        udt_receive_single(packet[3], rx);
        if
-       :: hasseq == packet[1] && check2_chksm(packet) ->
+       :: ((hasseq == packet[1]) && check2_chksm(packet)) ->
           sink(packet, 4);
           hasseq = ! hasseq
        :: else -> printf("warn: suppressed broken\n")
        fi;
        response[1] = packet[1];
        make2_chksm(response[0], response[1], response[2], response[3]);
-       udt_send(response, 4, tx, exp_loss, exp_corrupt)
+       udt_send(response, 4, tx, exp_loss, exp_corrupt);
     :: else -> break
     od;
     rx_stop = true
@@ -84,8 +90,8 @@ init {
     chan udata_c = [4] of { bit };
     chan uack_c = [4] of { bit };
     atomic {
-        run rdt2_2_sender(udata_c, uack_c);
-        run rdt2_2_receiver(udata_c, uack_c);
+        run rdt3_sender(udata_c, uack_c);
+        run rdt3_receiver(udata_c, uack_c);
     };
     do
     :: ! (tx_stop || rx_stop) -> skip

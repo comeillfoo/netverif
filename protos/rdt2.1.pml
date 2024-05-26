@@ -12,6 +12,7 @@ inline make2_chksm(payload, seqnum, chksm0, chksm1) {
 #define check_chksm(payload, checksum) (payload != checksum)
 
 int packets = 10, exp_loss = 0, exp_corrupt = 5
+bool tx_stop = false, rx_stop = false
 
 /******************************************
  * rdt2.1 features:
@@ -25,6 +26,8 @@ int packets = 10, exp_loss = 0, exp_corrupt = 5
  * - packets order violation
  *****************************************/
 proctype rdt2_1_sender(chan tx, rx) {
+    xs tx;
+    xr rx;
     bit packet[4];
     packet[1] = 1;
     for(nr_packet, 0, packets)
@@ -44,13 +47,17 @@ proctype rdt2_1_sender(chan tx, rx) {
            udt_receive_single(response[0], rx);
            udt_receive_single(response[1], rx)
         od;
-    rof(nr_packet)
+    rof(nr_packet);
+    tx_stop = true
 }
 
 proctype rdt2_1_receiver(chan rx, tx) {
+    xs tx;
+    xr rx;
     bit packet[4], hasseq = 0, is_nack = 0;
     do
-    :: udt_receive_single(packet[0], rx);
+    :: (! tx_stop) ->
+       udt_receive_single(packet[0], rx);
        udt_receive_single(packet[1], rx);
        udt_receive_single(packet[2], rx);
        udt_receive_single(packet[3], rx);
@@ -66,7 +73,8 @@ proctype rdt2_1_receiver(chan rx, tx) {
        fi;
        tx ! is_nack;
        tx ! make_chksm(is_nack)
-    od
+    od;
+    rx_stop = true
 }
 
 
@@ -76,5 +84,10 @@ init {
     atomic {
         run rdt2_1_sender(udata_c, uack_c);
         run rdt2_1_receiver(udata_c, uack_c);
-    }
+    };
+    do
+    :: ! (tx_stop || rx_stop) -> skip
+    :: else -> break
+    od;
+    assert ( nstat_sent_pkts == nstat_received_pkts )
 }

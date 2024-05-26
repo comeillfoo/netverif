@@ -5,6 +5,7 @@
 
 
 int packets = 10, exp_loss = 0, exp_corrupt = 0
+bool tx_stop = false, rx_stop = false
 
 mtype { ack, nack }
 
@@ -17,6 +18,8 @@ mtype { ack, nack }
  * - bits corruptions in [N]ACKs
  *****************************************/
 proctype rdt2_sender(chan tx, rx) {
+    xs tx;
+    xr rx;
     bit packet[2];
     for(nr_packet, 0, packets)
         mtype response = nack;
@@ -28,14 +31,18 @@ proctype rdt2_sender(chan tx, rx) {
            udt_send(packet, 2, tx, exp_loss, exp_corrupt);
            udt_receive_single(response, rx)
         od;
-    rof(nr_packet)
+    rof(nr_packet);
+    tx_stop = true
 }
 
 
 proctype rdt2_receiver(chan rx, tx) {
+    xs tx;
+    xr rx;
     bit packet[2];
     do
-    :: udt_receive_single(packet[0], rx);
+    :: (! tx_stop) ->
+       udt_receive_single(packet[0], rx);
        udt_receive_single(packet[1], rx);
        if
        :: check_chksm(packet[0], packet[1]) -> // ACK
@@ -43,7 +50,9 @@ proctype rdt2_receiver(chan rx, tx) {
           tx ! ack
        :: else -> tx ! nack                    // NACK: wrong checksum
        fi
-    od
+    :: else -> break
+    od;
+    rx_stop = true
 }
 
 
@@ -53,5 +62,10 @@ init {
     atomic {
         run rdt2_sender(udata_c, uack_c);
         run rdt2_receiver(udata_c, uack_c);
-    }
+    };
+    do
+    :: ! (tx_stop || rx_stop) -> skip
+    :: else -> break
+    od;
+    assert ( nstat_sent_pkts == nstat_received_pkts )
 }
