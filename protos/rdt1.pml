@@ -23,9 +23,8 @@ proctype rdt1_receiver(chan rx) {
     xr rx;
     bit packet[1];
     do
-    :: (! tx_stop) ->
-       udt_receive_single(packet[0], rx) -> sink(packet, 1)
-    :: else -> break
+    :: udt_receive_single(packet[0], rx) -> sink(packet, 1)
+    :: tx_stop && nfull(rx) -> break
     od;
     rx_stop = true
 }
@@ -37,7 +36,7 @@ init {
         run rdt1_receiver(udchan)
     };
     do
-    :: ! (tx_stop || rx_stop) -> skip
+    :: ! rx_stop -> skip
     :: else -> break
     od;
     assert ( nstat_sent_pkts == nstat_received_pkts )

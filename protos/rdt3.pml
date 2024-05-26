@@ -66,8 +66,7 @@ proctype rdt3_receiver(chan rx, tx) {
     bit packet[4], response[4], hasseq = 0;
     response[0] = 0; // always ACK
     do
-    :: (! tx_stop) ->
-       udt_receive_single(packet[0], rx);
+    :: udt_receive_single(packet[0], rx);
        udt_receive_single(packet[1], rx);
        udt_receive_single(packet[2], rx);
        udt_receive_single(packet[3], rx);
@@ -80,7 +79,7 @@ proctype rdt3_receiver(chan rx, tx) {
        response[1] = packet[1];
        make2_chksm(response[0], response[1], response[2], response[3]);
        udt_send(response, 4, tx, exp_loss, exp_corrupt);
-    :: else -> break
+    :: tx_stop && nfull(rx) -> break
     od;
     rx_stop = true
 }
@@ -94,7 +93,7 @@ init {
         run rdt3_receiver(udata_c, uack_c);
     };
     do
-    :: ! (tx_stop || rx_stop) -> skip
+    :: ! rx_stop -> skip
     :: else -> break
     od;
     assert ( nstat_sent_pkts == nstat_received_pkts )

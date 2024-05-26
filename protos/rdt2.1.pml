@@ -56,8 +56,7 @@ proctype rdt2_1_receiver(chan rx, tx) {
     xr rx;
     bit packet[4], hasseq = 0, is_nack = 0;
     do
-    :: (! tx_stop) ->
-       udt_receive_single(packet[0], rx);
+    :: udt_receive_single(packet[0], rx);
        udt_receive_single(packet[1], rx);
        udt_receive_single(packet[2], rx);
        udt_receive_single(packet[3], rx);
@@ -73,6 +72,7 @@ proctype rdt2_1_receiver(chan rx, tx) {
        fi;
        tx ! is_nack;
        tx ! make_chksm(is_nack)
+    :: tx_stop && nfull(rx) -> break
     od;
     rx_stop = true
 }
@@ -86,7 +86,7 @@ init {
         run rdt2_1_receiver(udata_c, uack_c);
     };
     do
-    :: ! (tx_stop || rx_stop) -> skip
+    :: ! rx_stop -> skip
     :: else -> break
     od;
     assert ( nstat_sent_pkts == nstat_received_pkts )
