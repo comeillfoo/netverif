@@ -1,0 +1,10 @@
+(* udt.pv: unreliable data transfer *)
+
+free udchan: channel.
+
+free Payload: bitstring [private].
+
+let udt_send(packet: bitstring) = out(udchan, packet); 0.
+let udt_recv() = in(udchan, packet: bitstring); 0.
+
+process udt_send(Payload) | udt_recv()
