@@ -1,0 +1,50 @@
+(* udt: unreliable data transfer structures *)
+set ignoreTypes = false.
+set traceDisplay = long.
+
+type send_result.
+
+free SendMsg: send_result.
+free CorruptMsg: send_result.
+free LostMsg: send_result.
+
+
+free udchan: channel [private].
+
+free Payload: bitstring [private].
+
+fun corrupt(bitstring): bitstring.
+
+event evSent(send_result).
+event evRecv(bitstring).
+
+
+(* possible to receive corrupted payload *)
+query x: bitstring; event(evRecv(x)) && event(evSent(CorruptMsg)) ==> x = corrupt(Payload).
+
+(* not possible to receive a lost message *)
+query (event(evRecv(Payload)) && event(evSent(LostMsg))).
+
+
+let udt_send(packet: bitstring) =
+    new action: send_result;
+    event evSent(action);
+    if action = SendMsg then
+        out(udchan, packet); 0
+    else
+        if action = CorruptMsg then
+            out(udchan, corrupt(packet)); 0
+        else
+            0.
+
+
+let udt_recv() =
+    in(udchan, packet: bitstring);
+    event evRecv(packet);
+    0.
+
+
+(* rdt1.0: no checks
+ *
+ * not resistant to anything *)
+process udt_send(Payload) | udt_recv()
