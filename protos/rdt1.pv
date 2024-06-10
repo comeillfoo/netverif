@@ -1,4 +1,3 @@
-(* udt: unreliable data transfer structures *)
 set ignoreTypes = false.
 set traceDisplay = long.
 
@@ -20,13 +19,13 @@ event evRecv(bitstring).
 
 
 (* possible to receive corrupted payload *)
-query x: bitstring; event(evRecv(x)) && event(evSent(CorruptMsg)) ==> x = corrupt(Payload).
+query x: bitstring; inj-event(evRecv(x)) && inj-event(evSent(CorruptMsg)) ==> x = corrupt(Payload).
 
 (* not possible to receive a lost message *)
-query (event(evRecv(Payload)) && event(evSent(LostMsg))).
+query (inj-event(evRecv(Payload)) && inj-event(evSent(LostMsg))).
 
 
-let udt_send(packet: bitstring) =
+let rdt1_send(packet: bitstring) =
     new action: send_result;
     event evSent(action);
     if action = SendMsg then
@@ -38,13 +37,15 @@ let udt_send(packet: bitstring) =
             0.
 
 
-let udt_recv() =
+let rdt1_recv() =
     in(udchan, packet: bitstring);
     event evRecv(packet);
     0.
 
 
-(* rdt1.0: no checks
+(******************************************
+ * rdt1.0: no checks
  *
- * not resistant to anything *)
-process udt_send(Payload) | udt_recv()
+ * not resistant to anything
+ *****************************************)
+process rdt1_send(Payload) | rdt1_recv()

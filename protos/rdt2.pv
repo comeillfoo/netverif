@@ -1,0 +1,69 @@
+set ignoreTypes = false.
+set traceDisplay = long.
+
+type send_result.
+
+free SendMsg: send_result.
+free CorruptMsg: send_result.
+free LostMsg: send_result.
+
+
+free udata_c: channel [private].
+free uack_c: channel [private].
+
+free Payload: bitstring [private].
+free ACK: bitstring [private].
+free NACK: bitstring [private].
+
+fun corrupt(bitstring): bitstring.
+
+event evSent(send_result).
+event evRecv(bitstring).
+
+event evResend.
+event evRerecv.
+
+
+(* possible to receive corrupted payload *)
+query x: bitstring; inj-event(evRecv(x)) && inj-event(evSent(CorruptMsg)) ==> x = corrupt(Payload).
+
+(* not possible to receive a lost message *)
+query (inj-event(evRecv(Payload)) && inj-event(evSent(LostMsg))).
+
+(* on every corrupted packet need resend *)
+query inj-event(evResend) ==> inj-event(evRecv(corrupt(Payload))).
+
+
+let rdt2_send(packet: bitstring) =
+    new action: send_result;
+    event evSent(action);
+    if action = SendMsg then
+        out(udata_c, packet);
+        in(uack_c, reply: bitstring);
+        if reply = NACK then
+            event evResend
+    else
+        out(udata_c, corrupt(packet));
+        in(uack_c, reply: bitstring);
+        if reply = NACK then
+            event evResend.
+
+
+let rdt2_recv() =
+    in(udata_c, (packet: bitstring));
+    event evRecv(packet);
+    if packet = Payload then
+        out(uack_c, ACK)
+    else
+        out(uack_c, NACK);
+        event evRerecv.
+
+
+(******************************************
+ * rdt2.0 features: check checksum and ARQ
+ *
+ * not resistant to:
+ * - packets drops
+ * - bits corruptions in [N]ACKs
+ *****************************************)
+process !rdt2_send(Payload) | !rdt2_recv()
