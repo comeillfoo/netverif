@@ -1,0 +1,101 @@
+set ignoreTypes = false.
+set traceDisplay = long.
+
+type send_result.
+
+const SendMsg: send_result.
+const CorruptMsg: send_result.
+const LostMsg: send_result.
+
+
+free udata_c: channel [private].
+free uack_c: channel [private].
+free act_seqnums_c: channel [private].
+free exp_seqnums_c: channel [private].
+
+free Payload: bitstring [private].
+free ACK: bitstring [private].
+free NACK: bitstring [private].
+
+
+fun corrupt(bitstring): bitstring.
+
+fun should_corrupt(bitstring, send_result): bitstring
+    reduc forall x: bitstring; should_corrupt(x, CorruptMsg) = corrupt(x)
+    otherwise forall x: bitstring, y: send_result; should_corrupt(x, y) = x.
+
+
+event evSenderSendResult(send_result).
+event evReceiverRecvResult(bitstring).
+
+event evSenderRepeat.
+event evReceiverRepeat.
+
+event evReceiverSendResult(send_result).
+event evSenderRecvResult(bitstring).
+
+
+(* possible to receive corrupted payload *)
+query x: bitstring; inj-event(evReceiverRecvResult(x)) && inj-event(evSenderSendResult(CorruptMsg)) ==> x = corrupt(Payload).
+
+(* not possible to receive a lost message *)
+query (inj-event(evReceiverRecvResult(Payload)) && inj-event(evSenderSendResult(LostMsg))).
+
+(* on every received corrupted packet or sent corrupted reply need resend *)
+query event(evSenderRepeat) ==> event(evReceiverRecvResult(corrupt(Payload))) || event(evReceiverSendResult(CorruptMsg)).
+
+
+let rdt2_1_send(packet: bitstring) =
+    new action: send_result; (* get random outcome: just send, lost msg and corrupt msg *)
+    event evSenderSendResult(action);
+    in(act_seqnums_c, act_seqnum: nat);
+    if action = SendMsg then
+        out(udata_c, (packet, act_seqnum));
+        in(uack_c, reply: bitstring);
+        event evSenderRecvResult(reply);
+        if reply = NACK || reply = corrupt(NACK) || reply = corrupt(ACK) then
+            event evSenderRepeat;
+            out(act_seqnums_c, act_seqnum)
+        else
+            out(act_seqnums_c, act_seqnum + 1)
+    else
+        out(udata_c, (corrupt(packet), act_seqnum));
+        in(uack_c, reply: bitstring);
+        event evSenderRecvResult(reply);
+        if reply = NACK || reply = corrupt(NACK) || reply = corrupt(ACK) then
+            event evSenderRepeat;
+            out(act_seqnums_c, act_seqnum)
+        else
+            out(act_seqnums_c, act_seqnum + 1).
+
+
+let rdt2_1_recv() =
+    in(exp_seqnums_c, exp_seqnum: nat);
+    in(udata_c, (packet: bitstring, act_seqnum: nat));
+    event evReceiverRecvResult(packet);
+    new reply_action: send_result;
+    event evReceiverSendResult(reply_action);
+    if packet = Payload then
+        out(uack_c, should_corrupt(ACK, reply_action));
+        if exp_seqnum = act_seqnum then
+            out(exp_seqnums_c, exp_seqnum + 1)
+        else
+            out(exp_seqnums_c, exp_seqnum)
+    else
+        out(uack_c, should_corrupt(NACK, reply_action));
+        out(exp_seqnums_c, exp_seqnum);
+        event evReceiverRepeat.
+
+
+(******************************************
+ * rdt2.1 features:
+ * - sequence numbers for payload
+ * - checksums in [N]ACKs
+ * - ARQ
+ * - ACK on wrong sequence number
+ *
+ * not resistant to:
+ * - packets drops
+ * - packets order violation
+ *****************************************)
+process out(act_seqnums_c, 0) | out(exp_seqnums_c, 0) | (!(rdt2_1_send(Payload))) | (!(rdt2_1_recv()))

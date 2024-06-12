@@ -3,9 +3,9 @@ set traceDisplay = long.
 
 type send_result.
 
-free SendMsg: send_result.
-free CorruptMsg: send_result.
-free LostMsg: send_result.
+const SendMsg: send_result.
+const CorruptMsg: send_result.
+const LostMsg: send_result.
 
 
 free udata_c: channel [private].
@@ -50,7 +50,7 @@ let rdt2_send(packet: bitstring) =
 
 
 let rdt2_recv() =
-    in(udata_c, (packet: bitstring));
+    in(udata_c, packet: bitstring);
     event evRecv(packet);
     if packet = Payload then
         out(uack_c, ACK)

@@ -3,9 +3,9 @@ set traceDisplay = long.
 
 type send_result.
 
-free SendMsg: send_result.
-free CorruptMsg: send_result.
-free LostMsg: send_result.
+const SendMsg: send_result.
+const CorruptMsg: send_result.
+const LostMsg: send_result.
 
 
 free udchan: channel [private].
