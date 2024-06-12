@@ -17,46 +17,46 @@ free NACK: bitstring [private].
 
 fun corrupt(bitstring): bitstring.
 
-event evSent(send_result).
-event evRecv(bitstring).
+event evSenderSendResult(send_result).
+event evReceiverRecvResult(bitstring).
 
-event evResend.
-event evRerecv.
+event evSenderRepeat.
+event evReceiverRepeat.
 
 
 (* possible to receive corrupted payload *)
-query x: bitstring; inj-event(evRecv(x)) && inj-event(evSent(CorruptMsg)) ==> x = corrupt(Payload).
+query x: bitstring; inj-event(evReceiverRecvResult(x)) && inj-event(evSenderSendResult(CorruptMsg)) ==> x = corrupt(Payload).
 
 (* not possible to receive a lost message *)
-query (inj-event(evRecv(Payload)) && inj-event(evSent(LostMsg))).
+query (inj-event(evReceiverRecvResult(Payload)) && inj-event(evSenderSendResult(LostMsg))).
 
 (* on every corrupted packet need resend *)
-query inj-event(evResend) ==> inj-event(evRecv(corrupt(Payload))).
+query inj-event(evSenderRepeat) ==> inj-event(evReceiverRecvResult(corrupt(Payload))).
 
 
 let rdt2_send(packet: bitstring) =
     new action: send_result;
-    event evSent(action);
+    event evSenderSendResult(action);
     if action = SendMsg then
         out(udata_c, packet);
         in(uack_c, reply: bitstring);
         if reply = NACK then
-            event evResend
+            event evSenderRepeat
     else
         out(udata_c, corrupt(packet));
         in(uack_c, reply: bitstring);
         if reply = NACK then
-            event evResend.
+            event evSenderRepeat.
 
 
 let rdt2_recv() =
     in(udata_c, packet: bitstring);
-    event evRecv(packet);
+    event evReceiverRecvResult(packet);
     if packet = Payload then
         out(uack_c, ACK)
     else
         out(uack_c, NACK);
-        event evRerecv.
+        event evReceiverRepeat.
 
 
 (******************************************

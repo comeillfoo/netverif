@@ -9,7 +9,7 @@ inline make2_chksm(payload, seqnum, chksm0, chksm1) {
     ((pkt[2] == (pkt[0] ^ pkt[1])) && (pkt[3] == (pkt[0] & pkt[1])))
 
 
-int packets = 10, exp_loss = 0, exp_corrupt = 0
+int packets = 10, exp_loss = 2, exp_corrupt = 2
 bool tx_stop = false, rx_stop = false
 
 /******************************************
@@ -36,7 +36,7 @@ resend:
         udt_send(packet, 4, tx, exp_loss, exp_corrupt);
 
         // retransmission timeout
-        for(tm_count, 0, 1)
+        for(tm_count, 0, 3)
           if
           :: full(rx) ->
              udt_receive_single(response[0], rx);
@@ -44,6 +44,7 @@ resend:
              udt_receive_single(response[2], rx);
              udt_receive_single(response[3], rx);
              goto handle_reply
+          :: nfull(rx) -> skip
           fi;
         rof(tm_count);
         printf("warn: retransmitting on timeout...\n");
