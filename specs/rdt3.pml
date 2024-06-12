@@ -74,10 +74,12 @@ proctype rdt3_receiver(chan rx, tx) {
        if
        :: ((hasseq == packet[1]) && check2_chksm(packet)) ->
           sink(packet, 4);
+          response[1] = hasseq;
           hasseq = ! hasseq
-       :: else -> printf("warn: suppressed broken\n")
+       :: else ->
+          response[1] = ! hasseq; // force wrong seqnum
+          printf("warn: suppressed broken\n")
        fi;
-       response[1] = packet[1];
        make2_chksm(response[0], response[1], response[2], response[3]);
        udt_send(response, 4, tx, exp_loss, exp_corrupt);
     :: tx_stop && nfull(rx) -> break
