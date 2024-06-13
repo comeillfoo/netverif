@@ -67,6 +67,7 @@ let rdt2_1_send(packet: bitstring) =
             out(act_seqnums_c, act_seqnum)
         else
             out(act_seqnums_c, act_seqnum + 1).
+        (* place for lost message *)
 
 
 let rdt2_1_recv() =

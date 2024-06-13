@@ -47,6 +47,7 @@ let rdt2_send(packet: bitstring) =
         in(uack_c, reply: bitstring);
         if reply = NACK then
             event evSenderRepeat.
+        (* place for lost message *)
 
 
 let rdt2_recv() =
