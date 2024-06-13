@@ -49,7 +49,7 @@ query (inj-event(evReceiverRecvResult(Payload)) && inj-event(evSenderSendResult(
 (* on every received corrupted packet or sent corrupted reply - need resend *)
 query event(evSenderRepeat) ==> event(evReceiverRecvResult(corrupt(Payload))) || event(evReceiverSendResult(CorruptMsg)).
 
-(*  *)
+(* TODO: consider query new property *)
 
 let rdt3_send(packet: bitstring) =
     new action: send_result; (* get random outcome: just send, lost msg and corrupt msg *)
