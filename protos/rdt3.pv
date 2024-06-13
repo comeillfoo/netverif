@@ -50,7 +50,7 @@ query (inj-event(evReceiverRecvResult(Payload)) && inj-event(evSenderSendResult(
 query event(evSenderRepeat) ==> event(evReceiverRecvResult(corrupt(Payload))) || event(evReceiverSendResult(CorruptMsg)).
 
 
-let rdt2_2_send(packet: bitstring) =
+let rdt3_send(packet: bitstring) =
     new action: send_result; (* get random outcome: just send, lost msg and corrupt msg *)
     event evSenderSendResult(action);
     in(act_seqnums_c, act_seqnum: nat);
@@ -84,7 +84,7 @@ let rdt2_2_send(packet: bitstring) =
                 out(act_seqnums_c, act_seqnum + 1).
 
 
-let rdt2_2_recv() =
+let rdt3_recv() =
     in(exp_seqnums_c, exp_seqnum: nat);
     in(udata_c, (packet: bitstring, act_seqnum: nat));
     event evReceiverRecvResult(packet);
@@ -113,4 +113,4 @@ let rdt2_2_recv() =
  * not resistant to:
  * - packets drops
  *****************************************)
-process out(act_seqnums_c, 1) | out(exp_seqnums_c, 1) | (!(rdt2_2_send(Payload))) | (!(rdt2_2_recv()))
+process out(act_seqnums_c, 1) | out(exp_seqnums_c, 1) | (!(rdt3_send(Payload))) | (!(rdt3_recv()))
