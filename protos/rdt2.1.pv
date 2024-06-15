@@ -20,9 +20,9 @@ free NACK: bitstring [private].
 
 fun corrupt(bitstring): bitstring.
 
-fun should_corrupt(bitstring, send_result): bitstring
-    reduc forall x: bitstring; should_corrupt(x, CorruptMsg) = corrupt(x)
-    otherwise forall x: bitstring, y: send_result; should_corrupt(x, y) = x.
+fun corrupted(bitstring, send_result): bitstring
+    reduc forall x: bitstring; corrupted(x, CorruptMsg) = corrupt(x)
+    otherwise forall x: bitstring, y: send_result; corrupted(x, y) = x.
 
 
 event evSenderSendResult(send_result).
@@ -77,13 +77,13 @@ let rdt2_1_recv() =
     new reply_action: send_result;
     event evReceiverSendResult(reply_action);
     if packet = Payload then
-        out(uack_c, should_corrupt(ACK, reply_action));
+        out(uack_c, corrupted(ACK, reply_action));
         if exp_seqnum = act_seqnum then
             out(exp_seqnums_c, exp_seqnum + 1)
         else
             out(exp_seqnums_c, exp_seqnum)
     else
-        out(uack_c, should_corrupt(NACK, reply_action));
+        out(uack_c, corrupted(NACK, reply_action));
         out(exp_seqnums_c, exp_seqnum);
         event evReceiverRepeat.
 

@@ -20,9 +20,9 @@ free NACK: bitstring [private].
 
 fun corrupt(bitstring): bitstring.
 
-fun should_corrupt(bitstring, send_result): bitstring
-    reduc forall x: bitstring; should_corrupt(x, CorruptMsg) = corrupt(x)
-    otherwise forall x: bitstring, y: send_result; should_corrupt(x, y) = x.
+fun corrupted(bitstring, send_result): bitstring
+    reduc forall x: bitstring; corrupted(x, CorruptMsg) = corrupt(x)
+    otherwise forall x: bitstring, y: send_result; corrupted(x, y) = x.
 
 
 event evSenderSendResult(send_result).
@@ -78,13 +78,13 @@ let rdt2_2_recv() =
     event evReceiverSendResult(reply_action);
     if packet = Payload then
         if exp_seqnum = act_seqnum then
-            out(uack_c, (should_corrupt(ACK, reply_action), act_seqnum));
+            out(uack_c, (corrupted(ACK, reply_action), act_seqnum));
             out(exp_seqnums_c, not(exp_seqnum))
         else (* if wrong sequence number then [ACK past message] *)
-            out(uack_c, (should_corrupt(ACK, reply_action), not(exp_seqnum)));
+            out(uack_c, (corrupted(ACK, reply_action), not(exp_seqnum)));
             out(exp_seqnums_c, exp_seqnum)
     else (* if corrupted payload then [ACK past message] *)
-        out(uack_c, (should_corrupt(ACK, reply_action), not(exp_seqnum)));
+        out(uack_c, (corrupted(ACK, reply_action), not(exp_seqnum)));
         out(exp_seqnums_c, exp_seqnum);
         event evReceiverRepeat.
 

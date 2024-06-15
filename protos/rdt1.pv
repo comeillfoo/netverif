@@ -8,39 +8,74 @@ const CorruptMsg: send_result.
 const LostMsg: send_result.
 
 
+free nr_onsend_c: channel [private].
+free nr_recved_c: channel [private].
+free txrx_c: channel [private].
 free udchan: channel [private].
+
 
 free Payload: bitstring [private].
 
 fun corrupt(bitstring): bitstring.
 
-event evSenderSendResult(send_result).
-event evReceiverRecvResult(bitstring).
+fun corrupted(bitstring, send_result): bitstring
+    reduc forall x: bitstring; corrupted(x, CorruptMsg) = corrupt(x)
+    otherwise forall x: bitstring, y: send_result; corrupted(x, y) = x.
+
+fun packets(): nat
+reduc packets() = 10.
 
 
-(* possible to receive corrupted payload *)
-query x: bitstring; inj-event(evReceiverRecvResult(x)) && inj-event(evSenderSendResult(CorruptMsg)) ==> x = corrupt(Payload).
+event evSenderLost(nat).
+event evSenderStopped(nat).
 
-(* not possible to receive a lost message *)
-query (inj-event(evReceiverRecvResult(Payload)) && inj-event(evSenderSendResult(LostMsg))).
+event evPacketDelivered(bitstring, nat).
+event evReceiverStopped(nat).
+
+
+(* ensure that sender stops after N messages *)
+query n: nat; inj-event(evSenderStopped(n)) ==> n = 0.
+(* ensure that receiver can receive less than N messages *)
+query n: nat; inj-event(evReceiverStopped(n)) ==> n < 10.
+
+(* there are queries to justify that proto is not resistant to corruptions and losses *)
+(* 1. corrupted packet can be delivered *)
+query packet: bitstring, nr_packet: nat; inj-event(evPacketDelivered(packet, nr_packet)) ==> packet = corrupt(Payload).
+
+(* 2. lost message is not delivered *)
+query packet: bitstring, x: nat; (event(evPacketDelivered(packet, x)) && event(evSenderLost(x))).
+
+
+let rdt1_send_single(nr: nat, packet: bitstring) =
+    new outcome: send_result;
+    if outcome = SendMsg || outcome = CorruptMsg then
+        out(udchan, (corrupted(packet, outcome), nr))
+    else (* if outcome = LostMsg then *)
+        event evSenderLost(nr).
 
 
 let rdt1_send(packet: bitstring) =
-    new action: send_result;
-    event evSenderSendResult(action);
-    if action = SendMsg then
-        out(udchan, packet); 0
+    in(nr_onsend_c, packets_left: nat);
+    if packets_left > 0 then
+        out(txrx_c, true);
+        out(nr_onsend_c, packets_left - 1);
+        rdt1_send_single(packets_left, packet)
     else
-        if action = CorruptMsg then
-            out(udchan, corrupt(packet)); 0
-        else
-            0.
+        out(txrx_c, false);
+        out(nr_onsend_c, packets_left);
+        event evSenderStopped(packets_left).
 
 
 let rdt1_recv() =
-    in(udchan, packet: bitstring);
-    event evReceiverRecvResult(packet);
-    0.
+    in(txrx_c, should_receive: bool);
+    in(nr_recved_c, nr_delivered: nat);
+    if should_receive then
+        in(udchan, (packet: bitstring, nr_packet: nat));
+        event evPacketDelivered(packet, nr_packet);
+        out(nr_recved_c, nr_delivered + 1)
+    else
+        out(nr_recved_c, nr_delivered);
+        event evReceiverStopped(nr_delivered).
 
 
 (******************************************
@@ -48,4 +83,7 @@ let rdt1_recv() =
  *
  * not resistant to anything
  *****************************************)
-process rdt1_send(Payload) | rdt1_recv()
+process out(nr_onsend_c, packets()) |
+        out(nr_recved_c, 0) |
+        (! rdt1_send(Payload)) |
+        (! rdt1_recv())
