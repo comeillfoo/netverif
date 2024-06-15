@@ -47,11 +47,8 @@ event evSenderRepeat(nat).
 event evReceiverRepeat(nat, bitstring).
 
 
-(* ensure that sender stops after N messages *)
-query n: nat; inj-event(evSenderStopped(n)) ==> n = 0.
-
-(* ensure that receiver can receive less than N messages *)
-query n: nat; inj-event(evReceiverStopped(n)) ==> n < 10.
+(* ensure that sender and receiver stop after trasnmitting all N = 10 messages *)
+query inj-event(evReceiverStopped(10)) ==> inj-event(evSenderStopped(0)).
 
 (* there are queries to justify that proto is not resistant to corruptions and losses *)
 (* 1. corrupted packet cannot be delivered: because of ARQ *)
