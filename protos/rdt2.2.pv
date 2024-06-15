@@ -8,10 +8,17 @@ const CorruptMsg: send_result.
 const LostMsg: send_result.
 
 
+(* auxilary channels: for control *)
+free nr_onsend_c: channel [private]. (* Number of packets that need to be send *)
+free nr_recved_c: channel [private]. (* Number of successfully received packets *)
+free trigger_recv_c: channel [private]. (* Is receiver should work *)
+free tx_seqn_c: channel [private]. (* Sequence numbers for sender *)
+free rx_seqn_c: channel [private]. (* Sequence numbers for receiver *)
+
+(* communication channels: for transmissions *)
 free udata_c: channel [private].
 free uack_c: channel [private].
-free act_seqnums_c: channel [private].
-free exp_seqnums_c: channel [private].
+
 
 free Payload: bitstring [private].
 free ACK: bitstring [private].
@@ -24,69 +31,99 @@ fun corrupted(bitstring, send_result): bitstring
     reduc forall x: bitstring; corrupted(x, CorruptMsg) = corrupt(x)
     otherwise forall x: bitstring, y: send_result; corrupted(x, y) = x.
 
+fun packets(): nat
+reduc packets() = 10.
 
-event evSenderSendResult(send_result).
-event evReceiverRecvResult(bitstring).
+event evSenderLost(nat).
+event evSenderStopped(nat).
 
-event evSenderRepeat.
-event evReceiverRepeat.
+event evPacketDelivered(bitstring).
+event evNumPacketDelivered(nat).
+event evReceiverStopped(nat).
 
-event evReceiverSendResult(send_result).
-event evSenderRecvResult(bitstring).
+(* ARQ events *)
+event evSenderRepeat(nat).
+event evReceiverRepeat(nat, bitstring).
 
 
-(* possible to receive corrupted payload *)
-query x: bitstring; inj-event(evReceiverRecvResult(x)) && inj-event(evSenderSendResult(CorruptMsg)) ==> x = corrupt(Payload).
+(* ensure that sender stops after N messages *)
+query n: nat; inj-event(evSenderStopped(n)) ==> n = 0.
 
-(* not possible to receive a lost message *)
-query (inj-event(evReceiverRecvResult(Payload)) && inj-event(evSenderSendResult(LostMsg))).
+(* ensure that receiver can receive less than N messages *)
+query n: nat; inj-event(evReceiverStopped(n)) ==> n < 10.
 
-(* on every received corrupted packet or sent corrupted reply - need resend *)
-query event(evSenderRepeat) ==> event(evReceiverRecvResult(corrupt(Payload))) || event(evReceiverSendResult(CorruptMsg)).
+(* there are queries to justify that proto is not resistant to corruptions and losses *)
+(* 1. corrupted packet cannot be delivered: because of ARQ *)
+query inj-event(evPacketDelivered(corrupt(Payload))).
+
+(* 2. lost message is not delivered *)
+query n: nat; inj-event(evNumPacketDelivered(n)) && inj-event(evSenderLost(n)).
+
+(* 3. delivered packet don't need a resend *)
+query n: nat; inj-event(evNumPacketDelivered(n)) && inj-event(evSenderRepeat(n)).
+
+(* 4. only corrupted packets need a resend *)
+query n: nat, packet: bitstring; inj-event(evSenderRepeat(n)) ==> inj-event(evReceiverRepeat(n, corrupt(Payload))).
+
+
+let rdt2_2_send_single(nr: nat, packet: bitstring) =
+    in(tx_seqn_c, actual_seqn: bool);
+    new outcome: send_result; (* get random outcome: just send, lost msg and corrupt msg *)
+    if outcome = SendMsg || outcome = CorruptMsg then
+        out(udata_c, (corrupted(packet, outcome), actual_seqn, nr));
+        in(uack_c, (reply: bitstring, reply_seqn: bool));
+        if reply = NACK || reply = corrupt(NACK) || reply = corrupt(ACK) || reply_seqn <> actual_seqn then
+            event evSenderRepeat(nr);
+            out(tx_seqn_c, actual_seqn)
+        else
+            out(tx_seqn_c, not(actual_seqn))
+    else (* if outcome = LostMsg then *)
+        event evSenderLost(nr);
+        out(tx_seqn_c, actual_seqn).
 
 
 let rdt2_2_send(packet: bitstring) =
-    new action: send_result; (* get random outcome: just send, lost msg and corrupt msg *)
-    event evSenderSendResult(action);
-    in(act_seqnums_c, act_seqnum: bool);
-    if action = SendMsg then
-        out(udata_c, (packet, act_seqnum));
-        in(uack_c, (reply: bitstring, ack_seqnum: bool));
-        event evSenderRecvResult(reply);
-        if reply = NACK || reply = corrupt(NACK) || reply = corrupt(ACK) || ack_seqnum <> act_seqnum then
-            event evSenderRepeat;
-            out(act_seqnums_c, act_seqnum)
-        else
-            out(act_seqnums_c, not(act_seqnum))
+    in(nr_onsend_c, packets_left: nat);
+    if packets_left > 0 then
+        out(trigger_recv_c, true);
+        out(nr_onsend_c, packets_left - 1);
+        rdt2_2_send_single(packets_left, packet)
     else
-        out(udata_c, (corrupt(packet), act_seqnum));
-        in(uack_c, (reply: bitstring, ack_seqnum: bool));
-        event evSenderRecvResult(reply);
-        if reply = NACK || reply = corrupt(NACK) || reply = corrupt(ACK) || ack_seqnum <> act_seqnum then
-            event evSenderRepeat;
-            out(act_seqnums_c, act_seqnum)
-        else
-            out(act_seqnums_c, not(act_seqnum)).
-        (* place for lost message *)
+        out(trigger_recv_c, false);
+        out(nr_onsend_c, packets_left);
+        event evSenderStopped(packets_left).
+
+
+let rdt2_2_recv_single(nr_delivered: nat) =
+    in(rx_seqn_c, expect_seqn: bool);
+    in(udata_c, (packet: bitstring, actual_seqn: bool, nr_packet: nat));
+    new reply_outcome: send_result;
+    if packet = Payload then
+        if expect_seqn = actual_seqn then
+            out(uack_c, (corrupted(ACK, reply_outcome), actual_seqn));
+            out(nr_recved_c, nr_delivered + 1);
+            out(rx_seqn_c, not(expect_seqn));
+            event evPacketDelivered(packet);
+            event evNumPacketDelivered(nr_packet)
+        else (* if wrong sequence number then [ACK past message] *)
+            out(uack_c, (corrupted(ACK, reply_outcome), not(expect_seqn)));
+            out(nr_recved_c, nr_delivered);
+            out(rx_seqn_c, expect_seqn)
+    else (* if corrupted payload then [ACK past message] *)
+        out(uack_c, (corrupted(ACK, reply_outcome), not(expect_seqn)));
+        out(nr_recved_c, nr_delivered);
+        out(rx_seqn_c, expect_seqn);
+        event evReceiverRepeat(nr_packet, packet).
 
 
 let rdt2_2_recv() =
-    in(exp_seqnums_c, exp_seqnum: bool);
-    in(udata_c, (packet: bitstring, act_seqnum: bool));
-    event evReceiverRecvResult(packet);
-    new reply_action: send_result;
-    event evReceiverSendResult(reply_action);
-    if packet = Payload then
-        if exp_seqnum = act_seqnum then
-            out(uack_c, (corrupted(ACK, reply_action), act_seqnum));
-            out(exp_seqnums_c, not(exp_seqnum))
-        else (* if wrong sequence number then [ACK past message] *)
-            out(uack_c, (corrupted(ACK, reply_action), not(exp_seqnum)));
-            out(exp_seqnums_c, exp_seqnum)
-    else (* if corrupted payload then [ACK past message] *)
-        out(uack_c, (corrupted(ACK, reply_action), not(exp_seqnum)));
-        out(exp_seqnums_c, exp_seqnum);
-        event evReceiverRepeat.
+    in(trigger_recv_c, should_receive: bool);
+    in(nr_recved_c, nr_delivered: nat);
+    if should_receive then
+        rdt2_2_recv_single(nr_delivered)
+    else
+        out(nr_recved_c, nr_delivered);
+        event evReceiverStopped(nr_delivered).
 
 
 (******************************************
@@ -99,4 +136,7 @@ let rdt2_2_recv() =
  * not resistant to:
  * - packets drops
  *****************************************)
-process out(act_seqnums_c, false) | out(exp_seqnums_c, false) | (!(rdt2_2_send(Payload))) | (!(rdt2_2_recv()))
+process out(nr_onsend_c, packets()) | out(nr_recved_c, 0) |
+        out(tx_seqn_c, false) | out(rx_seqn_c, false) |
+        ! rdt2_2_send(Payload) |
+        ! rdt2_2_recv()
