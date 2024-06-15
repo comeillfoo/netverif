@@ -38,8 +38,8 @@ event evNumPacketDelivered(nat).
 event evReceiverStopped(nat).
 
 (* ARQ events *)
-event evSenderRepeat.
-event evReceiverRepeat.
+event evSenderRepeat(nat).
+event evReceiverRepeat(nat, bitstring).
 
 
 (* ensure that sender stops after N messages *)
@@ -53,16 +53,22 @@ query n: nat; inj-event(evReceiverStopped(n)) ==> n < 10.
 query inj-event(evPacketDelivered(corrupt(Payload))).
 
 (* 2. lost message is not delivered *)
-query x: nat; inj-event(evNumPacketDelivered(x)) && inj-event(evSenderLost(x)).
+query n: nat; inj-event(evNumPacketDelivered(n)) && inj-event(evSenderLost(n)).
+
+(* 3. delivered packet don't need a resend *)
+query n: nat; inj-event(evNumPacketDelivered(n)) && inj-event(evSenderRepeat(n)).
+
+(* 4. only corrupted packets need a resend *)
+query n: nat, packet: bitstring; inj-event(evSenderRepeat(n)) ==> inj-event(evReceiverRepeat(n, corrupt(Payload))).
 
 
 let rdt2_send_single(nr: nat, packet: bitstring) =
-    new outcome: send_result;
+    new outcome: send_result; (* get random outcome: just send, lost msg and corrupt msg *)
     if outcome = SendMsg || outcome = CorruptMsg then
         out(udata_c, (corrupted(packet, outcome), nr));
         in(uack_c, reply: bitstring);
         if reply = NACK then
-            event evSenderRepeat
+            event evSenderRepeat(nr)
     else (* if outcome = LostMsg then *)
         event evSenderLost(nr).
 
@@ -87,7 +93,7 @@ let rdt2_recv() =
         if packet = corrupt(Payload) then
             out(nr_recved_c, nr_delivered);
             out(uack_c, NACK);
-            event evReceiverRepeat
+            event evReceiverRepeat(nr_packet, packet)
         else
             event evPacketDelivered(packet);
             event evNumPacketDelivered(nr_packet);

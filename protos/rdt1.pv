@@ -49,7 +49,7 @@ query x: nat; inj-event(evNumPacketDelivered(x)) && inj-event(evSenderLost(x)).
 
 
 let rdt1_send_single(nr: nat, packet: bitstring) =
-    new outcome: send_result;
+    new outcome: send_result; (* get random outcome: just send, lost msg and corrupt msg *)
     if outcome = SendMsg || outcome = CorruptMsg then
         out(udata_c, (corrupted(packet, outcome), nr))
     else (* if outcome = LostMsg then *)
