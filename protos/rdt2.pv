@@ -7,7 +7,12 @@ const SendMsg: send_result.
 const CorruptMsg: send_result.
 const LostMsg: send_result.
 
+(* auxilary channels: for control *)
+free nr_onsend_c: channel [private].
+free nr_recved_c: channel [private].
+free trigger_recv_c: channel [private].
 
+(* communication channels: for transmissions *)
 free udata_c: channel [private].
 free uack_c: channel [private].
 
@@ -17,54 +22,90 @@ free NACK: bitstring [private].
 
 fun corrupt(bitstring): bitstring.
 
-event evSenderSendResult(send_result).
-event evReceiverRecvResult(bitstring).
+fun corrupted(bitstring, send_result): bitstring
+    reduc forall x: bitstring; corrupted(x, CorruptMsg) = corrupt(x)
+    otherwise forall x: bitstring, y: send_result; corrupted(x, y) = x.
 
+fun packets(): nat
+reduc packets() = 10.
+
+
+event evSenderLost(nat).
+event evSenderStopped(nat).
+
+event evPacketDelivered(bitstring).
+event evNumPacketDelivered(nat).
+event evReceiverStopped(nat).
+
+(* ARQ events *)
 event evSenderRepeat.
 event evReceiverRepeat.
 
 
-(* possible to receive corrupted payload *)
-query x: bitstring; inj-event(evReceiverRecvResult(x)) && inj-event(evSenderSendResult(CorruptMsg)) ==> x = corrupt(Payload).
+(* ensure that sender stops after N messages *)
+query n: nat; inj-event(evSenderStopped(n)) ==> n = 0.
 
-(* not possible to receive a lost message *)
-query (inj-event(evReceiverRecvResult(Payload)) && inj-event(evSenderSendResult(LostMsg))).
+(* ensure that receiver can receive less than N messages *)
+query n: nat; inj-event(evReceiverStopped(n)) ==> n < 10.
 
-(* on every corrupted packet need resend *)
-query inj-event(evSenderRepeat) ==> inj-event(evReceiverRecvResult(corrupt(Payload))).
+(* there are queries to justify that proto is not resistant to corruptions and losses *)
+(* 1. corrupted packet cannot be delivered: because of ARQ *)
+query inj-event(evPacketDelivered(corrupt(Payload))).
+
+(* 2. lost message is not delivered *)
+query x: nat; inj-event(evNumPacketDelivered(x)) && inj-event(evSenderLost(x)).
 
 
-let rdt2_send(packet: bitstring) =
-    new action: send_result;
-    event evSenderSendResult(action);
-    if action = SendMsg then
-        out(udata_c, packet);
+let rdt2_send_single(nr: nat, packet: bitstring) =
+    new outcome: send_result;
+    if outcome = SendMsg || outcome = CorruptMsg then
+        out(udata_c, (corrupted(packet, outcome), nr));
         in(uack_c, reply: bitstring);
         if reply = NACK then
             event evSenderRepeat
+    else (* if outcome = LostMsg then *)
+        event evSenderLost(nr).
+
+
+let rdt2_send(packet: bitstring) =
+    in(nr_onsend_c, packets_left: nat);
+    if packets_left > 0 then
+        out(trigger_recv_c, true);
+        out(nr_onsend_c, packets_left - 1);
+        rdt2_send_single(packets_left, packet)
     else
-        out(udata_c, corrupt(packet));
-        in(uack_c, reply: bitstring);
-        if reply = NACK then
-            event evSenderRepeat.
-        (* place for lost message *)
+        out(trigger_recv_c, false);
+        out(nr_onsend_c, packets_left);
+        event evSenderStopped(packets_left).
 
 
 let rdt2_recv() =
-    in(udata_c, packet: bitstring);
-    event evReceiverRecvResult(packet);
-    if packet = Payload then
-        out(uack_c, ACK)
+    in(trigger_recv_c, should_receive: bool);
+    in(nr_recved_c, nr_delivered: nat);
+    if should_receive then
+        in(udata_c, (packet: bitstring, nr_packet: nat));
+        if packet = corrupt(Payload) then
+            out(nr_recved_c, nr_delivered);
+            out(uack_c, NACK);
+            event evReceiverRepeat
+        else
+            event evPacketDelivered(packet);
+            event evNumPacketDelivered(nr_packet);
+            out(nr_recved_c, nr_delivered + 1);
+            out(uack_c, ACK)
     else
-        out(uack_c, NACK);
-        event evReceiverRepeat.
+        out(nr_recved_c, nr_delivered);
+        event evReceiverStopped(nr_delivered).
 
 
 (******************************************
  * rdt2.0 features: check checksum and ARQ
  *
  * not resistant to:
- * - packets drops
+ * - packets drops, including [N]ACKs
  * - bits corruptions in [N]ACKs
  *****************************************)
-process !rdt2_send(Payload) | !rdt2_recv()
+process out(nr_onsend_c, packets()) |
+        out(nr_recved_c, 0) |
+        ! rdt2_send(Payload) |
+        ! rdt2_recv()
