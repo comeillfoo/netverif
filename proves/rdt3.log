@@ -1,0 +1,254 @@
+Process 0 (that is, the initial process):
+(
+    {1}out(nr_onsend_c, packets)
+) | (
+    {2}out(nr_recved_c, 0)
+) | (
+    {3}out(tx_seqn_c, false)
+) | (
+    {4}out(rx_seqn_c, false)
+) | (
+    {5}!
+    {6}let packet: bitstring = Payload in
+    {7}in(nr_onsend_c, packets_left: nat);
+    {8}if (packets_left > 0) then
+    (
+        {9}out(trigger_recv_c, true);
+        {10}in(tx_seqn_c, actual_seqn: bool);
+        {11}new outcome: send_result;
+        {12}if ((outcome = SendMsg) || (outcome = CorruptMsg)) then
+        (
+            {13}out(udata_c, (corrupted(packet,outcome),actual_seqn,packets_left));
+            {14}in(trigger_tout_c, should_timeout: bool);
+            {15}if should_timeout then
+                {16}event evSenderRepeat(packets_left);
+                {17}out(nr_onsend_c, packets_left);
+                {18}out(tx_seqn_c, actual_seqn)
+            else
+                {19}in(uack_c, (reply: bitstring,reply_seqn: bool));
+                {20}if ((reply = NACK) || ((reply = corrupt(NACK)) || ((reply = corrupt(ACK)) || (reply_seqn ≠ actual_seqn)))) then
+                    {21}event evSenderRepeat(packets_left);
+                    {22}out(nr_onsend_c, packets_left);
+                    {23}out(tx_seqn_c, actual_seqn)
+                else
+                    {24}out(nr_onsend_c, packets_left - 1);
+                    {25}out(tx_seqn_c, not(actual_seqn))
+        )
+        else
+            {26}event evSenderLost(packets_left);
+            {27}out(nr_onsend_c, packets_left);
+            {28}out(tx_seqn_c, actual_seqn)
+    )
+    else
+        {29}out(trigger_recv_c, false);
+        {30}out(nr_onsend_c, packets_left);
+        {31}event evSenderStopped(packets_left)
+) | (
+    {32}!
+    {33}in(trigger_recv_c, should_receive: bool);
+    {34}in(nr_recved_c, nr_delivered: nat);
+    {35}if should_receive then
+    (
+        {36}in(rx_seqn_c, expect_seqn: bool);
+        {37}in(udata_c, (packet_1: bitstring,actual_seqn_1: bool,nr_packet: nat));
+        {38}new reply_outcome: send_result;
+        {39}if (packet_1 = Payload) then
+        (
+            {40}if (expect_seqn = actual_seqn_1) then
+            (
+                {41}out(nr_recved_c, nr_delivered + 1);
+                {42}out(rx_seqn_c, not(expect_seqn));
+                {43}event evPacketDelivered(packet_1);
+                {44}event evNumPacketDelivered(nr_packet);
+                {45}let outcome_1: send_result = reply_outcome in
+                {46}let msg: bitstring = ACK in
+                {47}if ((outcome_1 = SendMsg) || (outcome_1 = CorruptMsg)) then
+                    {48}out(trigger_tout_c, false);
+                    {49}out(uack_c, (corrupted(msg,outcome_1),actual_seqn_1))
+                else
+                    {50}out(trigger_tout_c, true)
+            )
+            else
+                {51}out(nr_recved_c, nr_delivered);
+                {52}out(rx_seqn_c, expect_seqn);
+                {53}let outcome_2: send_result = reply_outcome in
+                {54}let msg_1: bitstring = ACK in
+                {55}let seqnum: bool = not(expect_seqn) in
+                {56}if ((outcome_2 = SendMsg) || (outcome_2 = CorruptMsg)) then
+                    {57}out(trigger_tout_c, false);
+                    {58}out(uack_c, (corrupted(msg_1,outcome_2),seqnum))
+                else
+                    {59}out(trigger_tout_c, true)
+        )
+        else
+            {60}out(nr_recved_c, nr_delivered);
+            {61}out(rx_seqn_c, expect_seqn);
+            {62}event evReceiverRepeat(nr_packet,packet_1);
+            {63}let outcome_3: send_result = reply_outcome in
+            {64}let msg_2: bitstring = ACK in
+            {65}let seqnum_1: bool = not(expect_seqn) in
+            {66}if ((outcome_3 = SendMsg) || (outcome_3 = CorruptMsg)) then
+                {67}out(trigger_tout_c, false);
+                {68}out(uack_c, (corrupted(msg_2,outcome_3),seqnum_1))
+            else
+                {69}out(trigger_tout_c, true)
+    )
+    else
+        {70}out(nr_recved_c, nr_delivered);
+        {71}event evReceiverStopped(nr_delivered)
+)
+
+--  Process 1 (that is, process 0, with let moved downwards):
+(
+    {1}out(nr_onsend_c, packets)
+) | (
+    {2}out(nr_recved_c, 0)
+) | (
+    {3}out(tx_seqn_c, false)
+) | (
+    {4}out(rx_seqn_c, false)
+) | (
+    {5}!
+    {7}in(nr_onsend_c, packets_left: nat);
+    {8}if (packets_left > 0) then
+    (
+        {9}out(trigger_recv_c, true);
+        {10}in(tx_seqn_c, actual_seqn: bool);
+        {11}new outcome: send_result;
+        {12}if ((outcome = SendMsg) || (outcome = CorruptMsg)) then
+        (
+            {6}let packet: bitstring = Payload in
+            {13}out(udata_c, (corrupted(packet,outcome),actual_seqn,packets_left));
+            {14}in(trigger_tout_c, should_timeout: bool);
+            {15}if should_timeout then
+                {16}event evSenderRepeat(packets_left);
+                {17}out(nr_onsend_c, packets_left);
+                {18}out(tx_seqn_c, actual_seqn)
+            else
+                {19}in(uack_c, (reply: bitstring,reply_seqn: bool));
+                {20}if ((reply = NACK) || ((reply = corrupt(NACK)) || ((reply = corrupt(ACK)) || (reply_seqn ≠ actual_seqn)))) then
+                    {21}event evSenderRepeat(packets_left);
+                    {22}out(nr_onsend_c, packets_left);
+                    {23}out(tx_seqn_c, actual_seqn)
+                else
+                    {24}out(nr_onsend_c, packets_left - 1);
+                    {25}out(tx_seqn_c, not(actual_seqn))
+        )
+        else
+            {26}event evSenderLost(packets_left);
+            {27}out(nr_onsend_c, packets_left);
+            {28}out(tx_seqn_c, actual_seqn)
+    )
+    else
+        {29}out(trigger_recv_c, false);
+        {30}out(nr_onsend_c, packets_left);
+        {31}event evSenderStopped(packets_left)
+) | (
+    {32}!
+    {33}in(trigger_recv_c, should_receive: bool);
+    {34}in(nr_recved_c, nr_delivered: nat);
+    {35}if should_receive then
+    (
+        {36}in(rx_seqn_c, expect_seqn: bool);
+        {37}in(udata_c, (packet_1: bitstring,actual_seqn_1: bool,nr_packet: nat));
+        {38}new reply_outcome: send_result;
+        {39}if (packet_1 = Payload) then
+        (
+            {40}if (expect_seqn = actual_seqn_1) then
+            (
+                {41}out(nr_recved_c, nr_delivered + 1);
+                {42}out(rx_seqn_c, not(expect_seqn));
+                {43}event evPacketDelivered(packet_1);
+                {44}event evNumPacketDelivered(nr_packet);
+                {45}let outcome_1: send_result = reply_outcome in
+                {47}if ((outcome_1 = SendMsg) || (outcome_1 = CorruptMsg)) then
+                (
+                    {48}out(trigger_tout_c, false);
+                    {46}let msg: bitstring = ACK in
+                    {49}out(uack_c, (corrupted(msg,outcome_1),actual_seqn_1))
+                )
+                else
+                    {50}out(trigger_tout_c, true)
+            )
+            else
+                {51}out(nr_recved_c, nr_delivered);
+                {52}out(rx_seqn_c, expect_seqn);
+                {53}let outcome_2: send_result = reply_outcome in
+                {56}if ((outcome_2 = SendMsg) || (outcome_2 = CorruptMsg)) then
+                (
+                    {57}out(trigger_tout_c, false);
+                    {55}let seqnum: bool = not(expect_seqn) in
+                    {54}let msg_1: bitstring = ACK in
+                    {58}out(uack_c, (corrupted(msg_1,outcome_2),seqnum))
+                )
+                else
+                    {59}out(trigger_tout_c, true)
+        )
+        else
+            {60}out(nr_recved_c, nr_delivered);
+            {61}out(rx_seqn_c, expect_seqn);
+            {62}event evReceiverRepeat(nr_packet,packet_1);
+            {63}let outcome_3: send_result = reply_outcome in
+            {66}if ((outcome_3 = SendMsg) || (outcome_3 = CorruptMsg)) then
+            (
+                {67}out(trigger_tout_c, false);
+                {65}let seqnum_1: bool = not(expect_seqn) in
+                {64}let msg_2: bitstring = ACK in
+                {68}out(uack_c, (corrupted(msg_2,outcome_3),seqnum_1))
+            )
+            else
+                {69}out(trigger_tout_c, true)
+    )
+    else
+        {70}out(nr_recved_c, nr_delivered);
+        {71}event evReceiverStopped(nr_delivered)
+)
+
+-- Query inj-event(evReceiverStopped(10)) ==> inj-event(evSenderStopped(0)) in process 1.
+Translating the process into Horn clauses...
+Completing...
+Starting query inj-event(evReceiverStopped(10)) ==> inj-event(evSenderStopped(0))
+RESULT inj-event(evReceiverStopped(10)) ==> inj-event(evSenderStopped(0)) is true.
+-- Query not event(evPacketDelivered(corrupt(Payload[]))) in process 1.
+Translating the process into Horn clauses...
+Completing...
+Starting query not event(evPacketDelivered(corrupt(Payload[])))
+RESULT not event(evPacketDelivered(corrupt(Payload[]))) is true.
+-- Query not (event(evNumPacketDelivered(n)) && event(evSenderLost(n))) in process 1.
+Translating the process into Horn clauses...
+Completing...
+Starting query not (event(evNumPacketDelivered(n)) && event(evSenderLost(n)))
+RESULT not (event(evNumPacketDelivered(n)) && event(evSenderLost(n))) is true.
+-- Query not (event(evNumPacketDelivered(n)) && event(evSenderRepeat(n))) in process 1.
+Translating the process into Horn clauses...
+Completing...
+Starting query not (event(evNumPacketDelivered(n)) && event(evSenderRepeat(n)))
+RESULT not (event(evNumPacketDelivered(n)) && event(evSenderRepeat(n))) is true.
+-- Query inj-event(evNumPacketDelivered(n)) ==> inj-event(evSenderLost(n)) || inj-event(evSenderRepeat(n)) in process 1.
+Translating the process into Horn clauses...
+Completing...
+Starting query inj-event(evNumPacketDelivered(n)) ==> inj-event(evSenderLost(n)) || inj-event(evSenderRepeat(n))
+RESULT inj-event(evNumPacketDelivered(n)) ==> inj-event(evSenderLost(n)) || inj-event(evSenderRepeat(n)) is true.
+-- Query inj-event(evSenderRepeat(n)) ==> inj-event(evReceiverRepeat(n,corrupt(Payload[]))) in process 1.
+Translating the process into Horn clauses...
+Completing...
+Starting query inj-event(evSenderRepeat(n)) ==> inj-event(evReceiverRepeat(n,corrupt(Payload[])))
+RESULT inj-event(evSenderRepeat(n)) ==> inj-event(evReceiverRepeat(n,corrupt(Payload[]))) is true.
+
+--------------------------------------------------------------
+Verification summary:
+
+Query inj-event(evReceiverStopped(10)) ==> inj-event(evSenderStopped(0)) is true.
+
+Query not event(evPacketDelivered(corrupt(Payload[]))) is true.
+
+Query not (event(evNumPacketDelivered(n)) && event(evSenderLost(n))) is true.
+
+Query not (event(evNumPacketDelivered(n)) && event(evSenderRepeat(n))) is true.
+
+Query inj-event(evNumPacketDelivered(n)) ==> inj-event(evSenderLost(n)) || inj-event(evSenderRepeat(n)) is true.
+
+Query inj-event(evSenderRepeat(n)) ==> inj-event(evReceiverRepeat(n,corrupt(Payload[]))) is true.
+
+--------------------------------------------------------------
+

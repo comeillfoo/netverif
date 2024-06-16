@@ -1,0 +1,103 @@
+Process 0 (that is, the initial process):
+(
+    {1}out(nr_onsend_c, packets)
+) | (
+    {2}out(nr_recved_c, 0)
+) | (
+    {3}!
+    {4}let packet: bitstring = Payload in
+    {5}in(nr_onsend_c, packets_left: nat);
+    {6}if (packets_left > 0) then
+    (
+        {7}out(trigger_recv_c, true);
+        {8}out(nr_onsend_c, packets_left - 1);
+        {9}new outcome: send_result;
+        {10}if ((outcome = SendMsg) || (outcome = CorruptMsg)) then
+            {11}out(udata_c, (corrupted(packet,outcome),packets_left))
+        else
+            {12}event evSenderLost(packets_left)
+    )
+    else
+        {13}out(trigger_recv_c, false);
+        {14}out(nr_onsend_c, packets_left);
+        {15}event evSenderStopped(packets_left)
+) | (
+    {16}!
+    {17}in(trigger_recv_c, should_receive: bool);
+    {18}in(nr_recved_c, nr_delivered: nat);
+    {19}if should_receive then
+        {20}in(udata_c, (packet_1: bitstring,nr_packet: nat));
+        {21}event evPacketDelivered(packet_1);
+        {22}event evNumPacketDelivered(nr_packet);
+        {23}out(nr_recved_c, nr_delivered + 1)
+    else
+        {24}out(nr_recved_c, nr_delivered);
+        {25}event evReceiverStopped(nr_delivered)
+)
+
+--  Process 1 (that is, process 0, with let moved downwards):
+(
+    {1}out(nr_onsend_c, packets)
+) | (
+    {2}out(nr_recved_c, 0)
+) | (
+    {3}!
+    {5}in(nr_onsend_c, packets_left: nat);
+    {6}if (packets_left > 0) then
+    (
+        {7}out(trigger_recv_c, true);
+        {8}out(nr_onsend_c, packets_left - 1);
+        {9}new outcome: send_result;
+        {10}if ((outcome = SendMsg) || (outcome = CorruptMsg)) then
+        (
+            {4}let packet: bitstring = Payload in
+            {11}out(udata_c, (corrupted(packet,outcome),packets_left))
+        )
+        else
+            {12}event evSenderLost(packets_left)
+    )
+    else
+        {13}out(trigger_recv_c, false);
+        {14}out(nr_onsend_c, packets_left);
+        {15}event evSenderStopped(packets_left)
+) | (
+    {16}!
+    {17}in(trigger_recv_c, should_receive: bool);
+    {18}in(nr_recved_c, nr_delivered: nat);
+    {19}if should_receive then
+        {20}in(udata_c, (packet_1: bitstring,nr_packet: nat));
+        {21}event evPacketDelivered(packet_1);
+        {22}event evNumPacketDelivered(nr_packet);
+        {23}out(nr_recved_c, nr_delivered + 1)
+    else
+        {24}out(nr_recved_c, nr_delivered);
+        {25}event evReceiverStopped(nr_delivered)
+)
+
+-- Query inj-event(evReceiverStopped(10)) ==> inj-event(evSenderStopped(0)) in process 1.
+Translating the process into Horn clauses...
+Completing...
+Starting query inj-event(evReceiverStopped(10)) ==> inj-event(evSenderStopped(0))
+RESULT inj-event(evReceiverStopped(10)) ==> inj-event(evSenderStopped(0)) is true.
+-- Query event(evPacketDelivered(corrupt(packet_2))) ==> packet_2 = Payload[] in process 1.
+Translating the process into Horn clauses...
+Completing...
+Starting query event(evPacketDelivered(corrupt(packet_2))) ==> packet_2 = Payload[]
+RESULT event(evPacketDelivered(corrupt(packet_2))) ==> packet_2 = Payload[] is true.
+-- Query not (event(evNumPacketDelivered(x)) && event(evSenderLost(x))) in process 1.
+Translating the process into Horn clauses...
+Completing...
+Starting query not (event(evNumPacketDelivered(x)) && event(evSenderLost(x)))
+RESULT not (event(evNumPacketDelivered(x)) && event(evSenderLost(x))) is true.
+
+--------------------------------------------------------------
+Verification summary:
+
+Query inj-event(evReceiverStopped(10)) ==> inj-event(evSenderStopped(0)) is true.
+
+Query event(evPacketDelivered(corrupt(packet_2))) ==> packet_2 = Payload[] is true.
+
+Query not (event(evNumPacketDelivered(x)) && event(evSenderLost(x))) is true.
+
+--------------------------------------------------------------
+
