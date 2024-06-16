@@ -60,6 +60,8 @@ query n: nat; inj-event(evNumPacketDelivered(n)) && inj-event(evSenderLost(n)).
 (* 3. delivered packet don't need a resend *)
 query n: nat; inj-event(evNumPacketDelivered(n)) && inj-event(evSenderRepeat(n)).
 
+query n: nat; inj-event(evNumPacketDelivered(n)) ==> inj-event(evSenderLost(n)) || inj-event(evSenderRepeat(n)).
+
 (* 4. only corrupted packets need a resend *)
 query n: nat, packet: bitstring; inj-event(evSenderRepeat(n)) ==> inj-event(evReceiverRepeat(n, corrupt(Payload))).
 
@@ -72,16 +74,20 @@ let rdt3_send_single(nr: nat, packet: bitstring) =
         in(trigger_tout_c, should_timeout: bool);
         if should_timeout then
             event evSenderRepeat(nr);
+            out(nr_onsend_c, nr);
             out(tx_seqn_c, actual_seqn)
         else
             in(uack_c, (reply: bitstring, reply_seqn: bool));
             if reply = NACK || reply = corrupt(NACK) || reply = corrupt(ACK) || reply_seqn <> actual_seqn then
                 event evSenderRepeat(nr);
+                out(nr_onsend_c, nr);
                 out(tx_seqn_c, actual_seqn)
             else
+                out(nr_onsend_c, nr - 1);
                 out(tx_seqn_c, not(actual_seqn))
     else (* if outcome = LostMsg then *)
         event evSenderLost(nr);
+        out(nr_onsend_c, nr);
         out(tx_seqn_c, actual_seqn).
 
 
@@ -89,7 +95,6 @@ let rdt3_send(packet: bitstring) =
     in(nr_onsend_c, packets_left: nat);
     if packets_left > 0 then
         out(trigger_recv_c, true);
-        out(nr_onsend_c, packets_left - 1);
         rdt3_send_single(packets_left, packet)
     else
         out(trigger_recv_c, false);
