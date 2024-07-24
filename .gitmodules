@@ -1,0 +1,3 @@
+[submodule "contrib/proverif_2_05"]
+	path = contrib/proverif_2_05
+	url = https://github.com/comeillfoo/proverif_2_05.git
